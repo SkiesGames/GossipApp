@@ -182,9 +182,9 @@ jobs:
     needs: [detect-changes, security-scan, format-lint, test]
     if: |
       always() && 
-      (needs.detect-changes.outputs.docker-is-changed == 'true' ||
-       (needs.detect-changes.outputs.app_is_changed == 'true' && 
-        (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')))
+      (needs.detect-changes.outputs.app_is_changed == 'true' || 
+       needs.detect-changes.outputs.docker-is-changed == 'true' ||
+       github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
