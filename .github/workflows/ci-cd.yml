@@ -59,10 +59,16 @@ jobs:
           ANSIBLE_PATTERN="ansible/"
           DOCKER_PATTERN="Dockerfile|compose.yml|requirements.txt"
           
+          echo "DEBUG: Event name: ${{ github.event_name }}"
+          echo "DEBUG: Before commit: ${{ github.event.before }}"
+          echo "DEBUG: Current commit: ${{ github.sha }}"
+          
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             CHANGED_FILES="src/**/* ansible/**/* Dockerfile compose.yml requirements.txt"
+            echo "DEBUG: Using workflow_dispatch mode"
           else
             CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "")
+            echo "DEBUG: Git diff result: '$CHANGED_FILES'"
           fi
           
           echo "changed_files<<EOF" >> $GITHUB_OUTPUT
