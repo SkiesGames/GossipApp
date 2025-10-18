@@ -81,6 +81,7 @@ jobs:
           if echo "$CHANGED_FILES" | grep -q "$APP_PATTERN"; then
             APP_IS_CHANGED="true"
           fi
+          echo "DEBUG: APP_IS_CHANGED=$APP_IS_CHANGED"
           echo "app_is_changed=$APP_IS_CHANGED" >> $GITHUB_OUTPUT
           
           ANSIBLE_IS_CHANGED="false"
@@ -99,6 +100,7 @@ jobs:
           if echo "$CHANGED_FILES" | grep -q "$WORKFLOW_PATTERN"; then
             WORKFLOW_IS_CHANGED="true"
           fi
+          echo "DEBUG: WORKFLOW_IS_CHANGED=$WORKFLOW_IS_CHANGED"
           echo "workflow_is_changed=$WORKFLOW_IS_CHANGED" >> $GITHUB_OUTPUT
           
           SECURITY_SCAN_NEEDED="false"
