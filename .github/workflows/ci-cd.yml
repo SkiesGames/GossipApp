@@ -178,7 +178,7 @@ jobs:
           docker build -f Dockerfile.prod.test -t gossipapp-test .
           docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace gossipapp-test
 
-  build-and-push:
+  build:
     needs: [detect-changes, security-scan, format-lint, test]
     if: |
       always() && 
@@ -225,8 +225,8 @@ jobs:
           cache-to: type=gha,mode=max   
 
   check-dependencies:
-    needs: [build-and-push]
-    if: always() && needs.build-and-push.result == 'success'
+    needs: [build]
+    if: always() && needs.build.result == 'success'
     uses: ./.github/workflows/cross-repo-dependencies.yml
     with:
       template-repo: 'SkiesGames/SkiesDota-CI-CD-Templates'
@@ -254,11 +254,11 @@ jobs:
       ANSIBLE_EXTRA_SECRETS_JSON: ${{ secrets.ANSIBLE_EXTRA_SECRETS_JSON }}
 
   deploy:
-    needs: [bootstrap, build-and-push]
+    needs: [bootstrap, build]
     if: |
       always() &&
       (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped') &&
-      needs.build-and-push.result == 'success' &&
+      needs.build.result == 'success' &&
       (vars.AUTO_DEPLOY == 'true' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
     uses: SkiesGames/SkiesDota-CI-CD-Templates/.github/workflows/reusable-ansible.yml@main
     with:
