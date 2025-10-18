@@ -16,7 +16,7 @@ def main():
     print("=== GossipApp ===")
     print(f"IS_CLIENT: {config.IS_CLIENT}")
     print(f"IS_SERVER: {config.IS_SERVER}")
-    print(f"Coordinator address: {config.coordinator_address}")
+    print(f"Coordinator address: {config.COORDINATOR_IP}:{config.COORDINATOR_PORT}")
     
     # Validate configuration
     if not config.IS_CLIENT and not config.IS_SERVER:

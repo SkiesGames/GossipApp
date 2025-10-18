@@ -6,6 +6,7 @@ class Coordinator:
     def __init__(self):
         self.client_messages = {}  # Store client address -> message mapping
         self.expected_clients = 2  # We expect 2 clients
+        self.message_sent = False  # Flag to track if message was already sent
         
     async def handle_client(self, reader, writer):
         addr = writer.get_extra_info('peername')
@@ -27,8 +28,8 @@ class Coordinator:
             print(f"Stored message from {client_id}: {message}")
             print(f"Current clients: {list(self.client_messages.keys())}")
             
-            # Check if we have messages from all expected clients
-            if len(self.client_messages) >= self.expected_clients:
+            # Check if we have messages from all expected clients and haven't sent yet
+            if len(self.client_messages) >= self.expected_clients and not self.message_sent:
                 await self.send_combined_message()
             
             # Send acknowledgment
@@ -60,6 +61,10 @@ class Coordinator:
             print(f"Not enough messages yet. Have {len(self.client_messages)}, need {self.expected_clients}")
             return
             
+        if self.message_sent:
+            print("Message already sent for this round, skipping")
+            return
+            
         # Combine messages in order of client connection
         combined_message = " ".join(self.client_messages.values())
         print(f"Combined message: {combined_message}")
@@ -69,10 +74,12 @@ class Coordinator:
             success = send_notification(combined_message)
             if success:
                 print("Message sent to Telegram successfully!")
+                self.message_sent = True  # Mark as sent
             else:
                 print("Failed to send message to Telegram")
         else:
             print("Telegram credentials not configured, skipping notification")
+            self.message_sent = True  # Mark as sent even if no Telegram
         
         # Clear messages after sending
         self.client_messages.clear()
