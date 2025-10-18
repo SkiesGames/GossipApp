@@ -1,6 +1,6 @@
 services:
   gossip-app:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/gossipapp:latest
+    image: ghcr.io/skiesgames/gossipapp:latest
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
       timeout: 3s
