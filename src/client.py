@@ -97,11 +97,7 @@ class ReliableTCPClient:
         return self.connected and self.writer is not None and not self.writer.is_closing()
 
 async def main():
-    # Parse host and port from config
-    host, port = config.coordinator_address.split(':')
-    port = int(port)
-    
-    client = ReliableTCPClient(host, port)
+    client = ReliableTCPClient(config.COORDINATOR_IP, config.COORDINATOR_PORT)
     
     # Random words for the client to send
     random_words = [

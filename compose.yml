@@ -1,10 +1,6 @@
 services:
   gossip-app:
     image: ghcr.io/skiesgames/gossipapp:latest
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
-      timeout: 3s
-      retries: 5
     restart: unless-stopped
     network_mode: host
     environment:

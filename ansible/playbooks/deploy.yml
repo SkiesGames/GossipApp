@@ -4,11 +4,6 @@
   hosts: all
   become: true
   tasks:
-    - name: Stop GossipApp containers
-      community.docker.docker_compose_v2:
-        project_src: /opt/gossipapp
-        state: absent
-
     - name: Sync updated repo files to VPS
       ansible.posix.synchronize:
         src: "{{ playbook_dir }}/../../"  # Sync entire repo
@@ -30,12 +25,6 @@
           TELEGRAM_CHAT_ID={{ lookup('env', 'TELEGRAM_CHAT_ID') }}
         mode: '0600'
 
-    - name: Pull latest Docker images
-      community.docker.docker_compose_v2:
-        project_src: /opt/gossipapp
-        pull: always
-        state: present
-
     - name: Deploy with force recreate
       community.docker.docker_compose_v2:
         project_src: /opt/gossipapp
@@ -44,24 +33,3 @@
         remove_orphans: true
         wait: true
         wait_timeout: 30
-
-    - name: Wait for GossipApp to be ready (only for server)
-      ansible.builtin.wait_for:
-        port: 8888
-        host: "{{ ansible_host }}"
-        timeout: 60
-      when: lookup('env', 'IS_SERVER') == 'true'
-
-    - name: Check GossipApp health (only for server)
-      ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:8888/health"
-        method: GET
-        status_code: 200
-      ignore_errors: yes
-      register: health_check
-      when: lookup('env', 'IS_SERVER') == 'true'
-
-    - name: Display health check result
-      ansible.builtin.debug:
-        msg: "GossipApp health check: {{ 'PASSED' if health_check.status == 200 else 'FAILED' }}"
-      when: lookup('env', 'IS_SERVER') == 'true'
