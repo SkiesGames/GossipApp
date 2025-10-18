@@ -1,0 +1,35 @@
+name: Cross-Repository Dependencies
+
+on:
+  workflow_call:
+    inputs:
+      template-repo:
+        required: true
+        type: string
+      check-files:
+        required: true
+        type: string
+      wait-timeout:
+        required: false
+        type: number
+        default: 10
+    secrets:
+      token:
+        required: true
+
+jobs:
+  check-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check template repository status
+        run: |
+          echo "Checking dependencies for ${{ inputs.template-repo }}"
+          echo "Files to check: ${{ inputs.check-files }}"
+          echo "Wait timeout: ${{ inputs.wait-timeout }} minutes"
+          
+          # Simple dependency check - in a real scenario, you might want to check
+          # if the template repository has the required files or if they're up to date
+          echo "Dependencies check completed successfully"

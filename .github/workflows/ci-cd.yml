@@ -1,0 +1,271 @@
+name: GossipApp CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**/*'
+      - 'ansible/**/*'
+      - 'compose.yml'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: 'Bootstrap infrastructure'
+        required: false
+        default: false
+        type: boolean
+      deploy:
+        description: 'Deploy/update application'
+        required: false
+        default: false
+        type: boolean
+      build_only:
+        description: 'Build and push Docker image only'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+  actions: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed-files: ${{ steps.detect.outputs.changed_files }}
+      app-is-changed: ${{ steps.detect.outputs.app_is_changed }}
+      ansible-is-changed: ${{ steps.detect.outputs.ansible_is_changed }}
+      docker-is-changed: ${{ steps.detect.outputs.docker_is_changed }}
+      security-scan-needed: ${{ steps.detect.outputs.security_scan_needed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: detect
+        run: |
+          APP_PATTERN="src/"
+          ANSIBLE_PATTERN="ansible/"
+          DOCKER_PATTERN="Dockerfile|compose.yml|requirements.txt"
+          
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CHANGED_FILES="src/**/* ansible/**/* Dockerfile compose.yml requirements.txt"
+          else
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "")
+          fi
+          
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          APP_IS_CHANGED="false"
+          if echo "$CHANGED_FILES" | grep -q "$APP_PATTERN"; then
+            APP_IS_CHANGED="true"
+          fi
+          echo "app_is_changed=$APP_IS_CHANGED" >> $GITHUB_OUTPUT
+          
+          ANSIBLE_IS_CHANGED="false"
+          if echo "$CHANGED_FILES" | grep -q "$ANSIBLE_PATTERN"; then
+            ANSIBLE_IS_CHANGED="true"
+          fi
+          echo "ansible_is_changed=$ANSIBLE_IS_CHANGED" >> $GITHUB_OUTPUT
+          
+          DOCKER_IS_CHANGED="false"
+          if echo "$CHANGED_FILES" | grep -E -q "$DOCKER_PATTERN"; then
+            DOCKER_IS_CHANGED="true"
+          fi
+          echo "docker_is_changed=$DOCKER_IS_CHANGED" >> $GITHUB_OUTPUT
+          
+          SECURITY_SCAN_NEEDED="false"
+          if [ -n "$CHANGED_FILES" ]; then
+            SECURITY_SCAN_NEEDED="true"
+          fi
+          echo "security_scan_needed=$SECURITY_SCAN_NEEDED" >> $GITHUB_OUTPUT
+
+  security-scan:
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.security_scan_needed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  format-lint:
+    needs: [detect-changes, security-scan]
+    if: needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run formatting and linting
+        run: |
+          docker build -f Dockerfile.prod.format-lint -t gossipapp-format-lint .
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace gossipapp-format-lint
+
+      - name: Commit formatting changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-format Python and YAML files"
+            git push
+          else
+            echo "No formatting changes to commit"
+          fi
+
+  test:
+    needs: [detect-changes, security-scan, format-lint]
+    if: needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create test structure
+        run: |
+          mkdir -p tests
+          cat > tests/test_basic.py << 'EOF'
+          import sys
+          import os
+          sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+          
+          def test_imports():
+              try:
+                  import config
+                  import client
+                  import server
+                  import telegram_interactions
+                  assert True
+              except ImportError as e:
+                  assert False, f"Import error: {e}"
+          EOF
+
+      - name: Run tests
+        run: |
+          docker build -f Dockerfile.prod.test -t gossipapp-test .
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace gossipapp-test
+
+  build-and-push:
+    needs: [detect-changes, security-scan, format-lint, test]
+    if: |
+      always() && 
+      (needs.detect-changes.outputs.app_is_changed == 'true' || 
+       needs.detect-changes.outputs.docker-is-changed == 'true' ||
+       github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max   
+
+  check-dependencies:
+    needs: [build-and-push]
+    if: always() && needs.build-and-push.result == 'success'
+    uses: ./.github/workflows/cross-repo-dependencies.yml
+    with:
+      template-repo: 'SkiesGames/SkiesDota-CI-CD-Templates'
+      check-files: |
+        Dockerfile,
+        ansible/galaxy.yml
+      wait-timeout: 5
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}
+
+  bootstrap:
+    needs: [check-dependencies]
+    if: |
+      always() && 
+      needs.check-dependencies.result == 'success' && 
+      (github.event_name == 'workflow_dispatch' && inputs.bootstrap)
+    uses: SkiesGames/SkiesDota-CI-CD-Templates/.github/workflows/reusable-ansible.yml@main
+    with:
+      playbook: playbooks/bootstrap.yml
+      ansible_extra_env_json: '{}'
+    secrets:
+      ANSIBLE_HOSTS: ${{ secrets.ANSIBLE_HOSTS }}
+      ANSIBLE_USER: ${{ secrets.ANSIBLE_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      ANSIBLE_EXTRA_SECRETS_JSON: ${{ secrets.ANSIBLE_EXTRA_SECRETS_JSON }}
+
+  deploy:
+    needs: [bootstrap, build-and-push]
+    if: |
+      always() &&
+      (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped') &&
+      needs.build-and-push.result == 'success' &&
+      (vars.AUTO_DEPLOY == 'true' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
+    uses: SkiesGames/SkiesDota-CI-CD-Templates/.github/workflows/reusable-ansible.yml@main
+    with:
+      playbook: playbooks/deploy.yml
+      ansible_extra_env_json: '{}'
+    secrets:
+      ANSIBLE_HOSTS: ${{ secrets.ANSIBLE_HOSTS }}
+      ANSIBLE_USER: ${{ secrets.ANSIBLE_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      ANSIBLE_EXTRA_SECRETS_JSON: ${{ secrets.ANSIBLE_EXTRA_SECRETS_JSON }}

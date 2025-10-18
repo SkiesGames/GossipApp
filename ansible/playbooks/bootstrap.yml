@@ -1,0 +1,68 @@
+# bootstrap.yml
+---
+- name: Bootstrap VPS for GossipApp
+  hosts: all
+  become: true
+  roles:
+    - role: geerlingguy.firewall
+      vars:
+        firewall_allowed_tcp_ports:
+          - "22"
+          - "8888"  # GossipApp coordinator port
+    - role: geerlingguy.docker
+
+  tasks:
+    - name: Install rsync on target hosts
+      ansible.builtin.package:
+        name: rsync
+        state: present
+
+    - name: Create app directory
+      ansible.builtin.file:
+        path: /opt/gossipapp
+        state: directory
+        mode: '0755'
+  
+    - name: Sync repo files to VPS
+      ansible.posix.synchronize:
+        src: "{{ playbook_dir }}/../../"
+        dest: /opt/gossipapp/
+        delete: yes
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=logs"
+
+    - name: Create logs directory
+      ansible.builtin.file:
+        path: /opt/gossipapp/logs
+        state: directory
+        mode: '0755'
+
+    - name: Generate .env file based on VPS role
+      ansible.builtin.copy:
+        dest: /opt/gossipapp/.env
+        content: |
+          GITHUB_REPOSITORY_OWNER={{ lookup('env', 'GITHUB_REPOSITORY_OWNER') | default('your-username') }}
+          IS_SERVER={{ lookup('env', 'IS_SERVER') | default('false') }}
+          IS_CLIENT={{ lookup('env', 'IS_CLIENT') | default('false') }}
+          COORDINATOR_IP={{ lookup('env', 'COORDINATOR_IP') | default(ansible_host) }}
+          COORDINATOR_PORT={{ lookup('env', 'COORDINATOR_PORT') | default('8888') }}
+          TELEGRAM_BOT_TOKEN={{ lookup('env', 'TELEGRAM_BOT_TOKEN') }}
+          TELEGRAM_CHAT_ID={{ lookup('env', 'TELEGRAM_CHAT_ID') }}
+        mode: '0600'
+
+    - name: Deploy GossipApp with Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: /opt/gossipapp
+        state: present
+        recreate: always
+        remove_orphans: true
+        wait: true
+        wait_timeout: 30
+
+    - name: Wait for GossipApp to be ready (only for server)
+      ansible.builtin.wait_for:
+        port: 8888
+        host: "{{ ansible_host }}"
+        timeout: 60
+      when: lookup('env', 'IS_SERVER') == 'true'
