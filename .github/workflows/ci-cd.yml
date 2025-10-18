@@ -58,16 +58,18 @@ jobs:
           APP_PATTERN="src/"
           ANSIBLE_PATTERN="ansible/"
           DOCKER_PATTERN="Dockerfile|compose.yml|requirements.txt"
+          WORKFLOW_PATTERN=".github/workflows/"
           
           echo "DEBUG: Event name: ${{ github.event_name }}"
           echo "DEBUG: Before commit: ${{ github.event.before }}"
           echo "DEBUG: Current commit: ${{ github.sha }}"
           
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            CHANGED_FILES="src/**/* ansible/**/* Dockerfile compose.yml requirements.txt"
+            CHANGED_FILES="src/**/* ansible/**/* Dockerfile compose.yml requirements.txt .github/workflows/**"
             echo "DEBUG: Using workflow_dispatch mode"
           else
-            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "")
+            # Check what changed in THIS commit only
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD || echo "")
             echo "DEBUG: Git diff result: '$CHANGED_FILES'"
           fi
           
@@ -92,6 +94,12 @@ jobs:
             DOCKER_IS_CHANGED="true"
           fi
           echo "docker_is_changed=$DOCKER_IS_CHANGED" >> $GITHUB_OUTPUT
+          
+          WORKFLOW_IS_CHANGED="false"
+          if echo "$CHANGED_FILES" | grep -q "$WORKFLOW_PATTERN"; then
+            WORKFLOW_IS_CHANGED="true"
+          fi
+          echo "workflow_is_changed=$WORKFLOW_IS_CHANGED" >> $GITHUB_OUTPUT
           
           SECURITY_SCAN_NEEDED="false"
           if [ -n "$CHANGED_FILES" ]; then
@@ -123,7 +131,7 @@ jobs:
 
   format-lint:
     needs: [detect-changes, security-scan]
-    if: needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true'
+    if: needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true' || needs.detect-changes.outputs.workflow_is_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -151,7 +159,7 @@ jobs:
 
   test:
     needs: [detect-changes, security-scan, format-lint]
-    if: needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true'
+    if: needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true' || needs.detect-changes.outputs.workflow_is_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -189,7 +197,8 @@ jobs:
     if: |
       always() && 
       (needs.detect-changes.outputs.app_is_changed == 'true' || 
-       needs.detect-changes.outputs.docker-is-changed == 'true' ||
+       needs.detect-changes.outputs.docker_is_changed == 'true' ||
+       needs.detect-changes.outputs.workflow_is_changed == 'true' ||
        github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
