@@ -246,7 +246,10 @@ jobs:
     uses: SkiesGames/SkiesDota-CI-CD-Templates/.github/workflows/reusable-ansible.yml@main
     with:
       playbook: playbooks/bootstrap.yml
-      ansible_extra_env_json: '{}'
+      ansible_extra_env_json: |
+        {
+          "GITHUB_REPOSITORY_OWNER": "${{ github.repository_owner }}"
+        }
     secrets:
       ANSIBLE_HOSTS: ${{ secrets.ANSIBLE_HOSTS }}
       ANSIBLE_USER: ${{ secrets.ANSIBLE_USER }}
@@ -263,7 +266,10 @@ jobs:
     uses: SkiesGames/SkiesDota-CI-CD-Templates/.github/workflows/reusable-ansible.yml@main
     with:
       playbook: playbooks/deploy.yml
-      ansible_extra_env_json: '{}'
+      ansible_extra_env_json: |
+        {
+          "GITHUB_REPOSITORY_OWNER": "${{ github.repository_owner }}"
+        }
     secrets:
       ANSIBLE_HOSTS: ${{ secrets.ANSIBLE_HOSTS }}
       ANSIBLE_USER: ${{ secrets.ANSIBLE_USER }}

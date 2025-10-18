@@ -22,13 +22,13 @@
       ansible.builtin.copy:
         dest: /opt/gossipapp/.env
         content: |
-          GITHUB_REPOSITORY_OWNER={{ lookup('env', 'GITHUB_REPOSITORY_OWNER') | default('your-username') }}
+          GITHUB_REPOSITORY_OWNER={{ ansible_extra_secrets_json.GITHUB_REPOSITORY_OWNER | default('your-username') }}
           IS_SERVER={{ lookup('env', 'IS_SERVER') | default('false') }}
           IS_CLIENT={{ lookup('env', 'IS_CLIENT') | default('false') }}
-          COORDINATOR_IP={{ lookup('env', 'COORDINATOR_IP') | default(ansible_host) }}
-          COORDINATOR_PORT={{ lookup('env', 'COORDINATOR_PORT') | default('8888') }}
-          TELEGRAM_BOT_TOKEN={{ lookup('env', 'TELEGRAM_BOT_TOKEN') }}
-          TELEGRAM_CHAT_ID={{ lookup('env', 'TELEGRAM_CHAT_ID') }}
+          COORDINATOR_IP={{ ansible_extra_secrets_json.COORDINATOR_IP | default(ansible_host) }}
+          COORDINATOR_PORT={{ ansible_extra_secrets_json.COORDINATOR_PORT | default('8888') }}
+          TELEGRAM_BOT_TOKEN={{ ansible_extra_secrets_json.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID={{ ansible_extra_secrets_json.TELEGRAM_CHAT_ID }}
         mode: '0600'
 
     - name: Pull latest Docker images
