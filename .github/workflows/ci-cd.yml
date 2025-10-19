@@ -46,9 +46,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       app_is_changed: ${{ steps.detect.outputs.app_is_changed }}
-      docker_is_changed: ${{ steps.detect.outputs.docker_is_changed }}
       security_scan_needed: ${{ steps.detect.outputs.security_scan_needed }}
-      dockerfiles_matrix: ${{ steps.detect.outputs.dockerfiles_matrix }}
+      tools_dockerfiles_matrix: ${{ steps.detect.outputs.tools_dockerfiles_matrix }}
+      app_docker_is_changed: ${{ steps.detect.outputs.app_docker_is_changed }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -59,10 +59,9 @@ jobs:
         id: detect
         run: |
           # Configuration
-          DOCKERFILE_PATTERNS=("Dockerfile" "Dockerfile.prod.test" "Dockerfile.prod.format-lint" "Dockerfile.prod.security-scan")
+          TOOLS_DOCKERFILE_PATTERNS=("Dockerfile.prod.test" "Dockerfile.prod.format-lint" "Dockerfile.prod.security-scan")
           APP_PATTERN="src/"
           ANSIBLE_PATTERN="ansible/"
-          DOCKER_PATTERN="Dockerfile|compose.yml|requirements.txt"
           
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             CHANGED_FILES="src/**/* ansible/**/* Dockerfile* compose.yml requirements.txt"
@@ -73,21 +72,21 @@ jobs:
           echo Changed files: 
           echo "$CHANGED_FILES"
           
-          # Detect Dockerfile changes
-          DOCKERFILES_CHANGED=""
-          for pattern in "${DOCKERFILE_PATTERNS[@]}"; do
+          # Detect Tools Dockerfile changes
+          TOOLS_DOCKERFILES_CHANGED=""
+          for pattern in "${TOOLS_DOCKERFILE_PATTERNS[@]}"; do
             if echo "$CHANGED_FILES" | grep -q "^${pattern}$"; then
-              DOCKERFILES_CHANGED="${DOCKERFILES_CHANGED:+$DOCKERFILES_CHANGED }$pattern"
+              TOOLS_DOCKERFILES_CHANGED="${TOOLS_DOCKERFILES_CHANGED:+$TOOLS_DOCKERFILES_CHANGED }$pattern"
             fi
           done
           
-          # Build matrix for Docker builds
-          DOCKERFILES_MATRIX="[]"
-          if [ -n "$DOCKERFILES_CHANGED" ]; then
-            DOCKERFILES_TRIMMED=$(echo "$DOCKERFILES_CHANGED" | xargs)
-            if [ -n "$DOCKERFILES_TRIMMED" ]; then
-              DOCKERFILES_MATRIX=$(jq -n -c --arg files "$DOCKERFILES_TRIMMED" '$files | split(" ") | map(select(length > 0))')
-              if ! echo "$DOCKERFILES_MATRIX" | jq . >/dev/null 2>&1; then
+          # Build matrix for Tools Docker builds
+          TOOLS_DOCKERFILES_MATRIX="[]"
+          if [ -n "$TOOLS_DOCKERFILES_CHANGED" ]; then
+            TOOLS_DOCKERFILES_TRIMMED=$(echo "$TOOLS_DOCKERFILES_CHANGED" | xargs)
+            if [ -n "$TOOLS_DOCKERFILES_TRIMMED" ]; then
+              TOOLS_DOCKERFILES_MATRIX=$(jq -n -c --arg files "$TOOLS_DOCKERFILES_TRIMMED" '$files | split(" ") | map(select(length > 0))')
+              if ! echo "$TOOLS_DOCKERFILES_MATRIX" | jq . >/dev/null 2>&1; then
                 echo "Error: Invalid JSON generated for matrix"
                 exit 1
               fi
@@ -106,12 +105,6 @@ jobs:
           fi
           echo "ansible_is_changed=$ANSIBLE_IS_CHANGED" >> $GITHUB_OUTPUT
           
-          DOCKER_IS_CHANGED="false"
-          if echo "$CHANGED_FILES" | grep -E -q "$DOCKER_PATTERN"; then
-            DOCKER_IS_CHANGED="true"
-          fi
-          echo "docker_is_changed=$DOCKER_IS_CHANGED" >> $GITHUB_OUTPUT
-          
           SECURITY_SCAN_NEEDED="false"
           if [ -n "$CHANGED_FILES" ]; then
             SECURITY_SCAN_NEEDED="true"
@@ -122,14 +115,22 @@ jobs:
           echo "changed_files<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          printf "dockerfiles_matrix=%s\n" "$DOCKERFILES_MATRIX" >> $GITHUB_OUTPUT
+          printf "tools_dockerfiles_matrix=%s\n" "$TOOLS_DOCKERFILES_MATRIX" >> $GITHUB_OUTPUT
+          
+          # Detect app Docker changes (main Dockerfile only)
+          APP_DOCKER_IS_CHANGED="false"
+          if echo "$CHANGED_FILES" | grep -q "^Dockerfile.prod$"; then
+            APP_DOCKER_IS_CHANGED="true"
+          fi
+          echo "app_docker_is_changed=$APP_DOCKER_IS_CHANGED" >> $GITHUB_OUTPUT
           
           # Summary
           echo "Changed files: $CHANGED_FILES"
-          echo "Dockerfiles matrix: $DOCKERFILES_MATRIX"
+          echo "Tools Dockerfiles matrix: $TOOLS_DOCKERFILES_MATRIX"
           echo "App changed: $APP_IS_CHANGED"
           echo "Ansible changed: $ANSIBLE_IS_CHANGED"
           echo "Docker changed: $DOCKER_IS_CHANGED"
+          echo "App Docker changed: $APP_DOCKER_IS_CHANGED"
           echo "Security scan: $SECURITY_SCAN_NEEDED"
 
   security-scan:
@@ -154,18 +155,18 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
-  build:
+  build-tools:
     needs: [detect-changes, security-scan]
     if: |
       always() &&
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
       (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
-      ((needs.detect-changes.result == 'success' && needs.detect-changes.outputs.dockerfiles_matrix != '[]') || 
+      ((needs.detect-changes.result == 'success' && needs.detect-changes.outputs.tools_dockerfiles_matrix != '[]') || 
       (needs.detect-changes.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.build))
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        dockerfile: ${{ fromJson(needs.detect-changes.outputs.dockerfiles_matrix || '["Dockerfile", "Dockerfile.prod.test", "Dockerfile.prod.format-lint"]') }}
+        dockerfile: ${{ fromJson(needs.detect-changes.outputs.tools_dockerfiles_matrix || '["Dockerfile.prod.test", "Dockerfile.prod.format-lint"]') }}
       fail-fast: false
     permissions:
       contents: read
@@ -188,18 +189,18 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.dockerfile == 'Dockerfile' && 'main' || matrix.dockerfile == 'Dockerfile.prod.test' && 'test' || matrix.dockerfile == 'Dockerfile.prod.format-lint' && 'format-lint' || 'security-scan' }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.tools_dockerfile == 'Dockerfile.prod.test' && 'test' || matrix.tools_dockerfile == 'Dockerfile.prod.format-lint' && 'format-lint' || 'security-scan' }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push ${{ matrix.dockerfile }}
+      - name: Build and push ${{ matrix.tools_dockerfile }}
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./${{ matrix.dockerfile }}
+          file: ./${{ matrix.tools_dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -207,13 +208,13 @@ jobs:
           cache-to: type=gha,mode=max
 
   format-lint:
-    needs: [detect-changes, security-scan, build]
+    needs: [detect-changes, security-scan, build-tools]
     if: |
       always() &&
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
       (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
-      (needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true')
+      (needs.build-tools.result == 'success' || needs.build-tools.result == 'skipped') &&
+      (needs.detect-changes.outputs.app_is_changed == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -240,14 +241,14 @@ jobs:
           fi
 
   test:
-    needs: [detect-changes, security-scan, build, format-lint]
+    needs: [detect-changes, security-scan, build-tools, format-lint]
     if: |
       always() &&
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
       (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.build-tools.result == 'success' || needs.build-tools.result == 'skipped') &&
       (needs.format-lint.result == 'success' || needs.format-lint.result == 'skipped') &&
-      (needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true')
+      (needs.detect-changes.outputs.app_is_changed == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -293,15 +294,65 @@ jobs:
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-test:latest
 
+  build-app:
+    needs: [detect-changes, security-scan, build-tools, format-lint, test]
+    if: |
+      always() &&
+      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
+      (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
+      (needs.build-tools.result == 'success' || needs.build-tools.result == 'skipped') &&
+      (needs.format-lint.result == 'success' || needs.format-lint.result == 'skipped') &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      ((needs.detect-changes.result == 'success' && (needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.app_docker_is_changed == 'true')) ||
+      (needs.detect-changes.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.build))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push main app
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   check-dependencies:
-    needs: [detect-changes, security-scan, format-lint, test, build]
+    needs: [detect-changes, security-scan, build-tools, format-lint, test, build-app]
     if: |
       always() &&
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
       (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
       (needs.format-lint.result == 'success' || needs.format-lint.result == 'skipped') &&
       (needs.test.result == 'success' || needs.test.result == 'skipped') &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (needs.build-app.result == 'success' || needs.build-app.result == 'skipped')
     uses: ./.github/workflows/cross-repo-dependencies.yml
     with:
       template-repo: 'SkiesGames/SkiesDota-CI-CD-Templates'
@@ -313,14 +364,14 @@ jobs:
       token: ${{ secrets.GITHUB_TOKEN }}
 
   bootstrap:
-    needs: [detect-changes, security-scan, format-lint, test, build, check-dependencies]
+    needs: [detect-changes, security-scan, build-tools, format-lint, test, build-app, check-dependencies]
     if: |
       always() &&
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
       (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
       (needs.format-lint.result == 'success' || needs.format-lint.result == 'skipped') &&
       (needs.test.result == 'success' || needs.test.result == 'skipped') &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.build-app.result == 'success' || needs.build-app.result == 'skipped') &&
       needs.check-dependencies.result == 'success' && 
       (github.event_name == 'workflow_dispatch' && inputs.bootstrap)
     uses: SkiesGames/SkiesDota-CI-CD-Templates/.github/workflows/reusable-ansible.yml@main
@@ -334,14 +385,14 @@ jobs:
       ANSIBLE_EXTRA_SECRETS_JSON: ${{ secrets.ANSIBLE_EXTRA_SECRETS_JSON }}
 
   deploy:
-    needs: [detect-changes, security-scan, format-lint, test, build, check-dependencies, bootstrap]
+    needs: [detect-changes, security-scan, build-tools, format-lint, test, build-app, check-dependencies, bootstrap]
     if: |
       always() &&
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
       (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
       (needs.format-lint.result == 'success' || needs.format-lint.result == 'skipped') &&
       (needs.test.result == 'success' || needs.test.result == 'skipped') &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.build-app.result == 'success' || needs.build-app.result == 'skipped') &&
       needs.check-dependencies.result == 'success' &&
       (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped') &&
       (vars.AUTO_DEPLOY == 'true' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
