@@ -12,6 +12,11 @@ on:
       - '.github/workflows/**'
   workflow_dispatch:
     inputs:
+      build:
+        description: 'Build Docker images'
+        required: false
+        default: false
+        type: boolean
       bootstrap:
         description: 'Bootstrap infrastructure'
         required: false
@@ -19,11 +24,6 @@ on:
         type: boolean
       deploy:
         description: 'Deploy/update application'
-        required: false
-        default: false
-        type: boolean
-      build_only:
-        description: 'Build and push Docker image only'
         required: false
         default: false
         type: boolean
@@ -40,6 +40,9 @@ env:
 
 jobs:
   detect-changes:
+    if: |
+      github.event_name != 'workflow_dispatch' || 
+      (github.event_name == 'workflow_dispatch' && !inputs.build)
     runs-on: ubuntu-latest
     outputs:
       app_is_changed: ${{ steps.detect.outputs.app_is_changed }}
@@ -131,7 +134,7 @@ jobs:
 
   security-scan:
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.security_scan_needed == 'true'
+    if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.security_scan_needed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -158,8 +161,7 @@ jobs:
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
       (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
       ((needs.detect-changes.result == 'success' && needs.detect-changes.outputs.dockerfiles_matrix != '[]') || 
-      needs.detect-changes.result == 'skipped' ||
-      github.event_name == 'workflow_dispatch')
+      (needs.detect-changes.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.build))
     runs-on: ubuntu-latest
     strategy:
       matrix:
