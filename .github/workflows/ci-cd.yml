@@ -70,14 +70,15 @@ jobs:
           echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
+          echo Changed files: $CHANGED_FILES
           
           APP_IS_CHANGED="false"
           if echo "$CHANGED_FILES" | grep -q "$APP_PATTERN"; then
             APP_IS_CHANGED="true"
           fi
           echo "app_is_changed=$APP_IS_CHANGED" >> $GITHUB_OUTPUT
+
+          echo APP_IS_CHANGED: $APP_IS_CHANGED
           
           ANSIBLE_IS_CHANGED="false"
           if echo "$CHANGED_FILES" | grep -q "$ANSIBLE_PATTERN"; then
