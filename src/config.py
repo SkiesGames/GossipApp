@@ -1,7 +1,7 @@
 import os
 
-IS_CLIENT = os.getenv("IS_CLIENT")
-IS_SERVER = os.getenv("IS_SERVER")
+IS_CLIENT = bool(os.getenv("IS_CLIENT"))
+IS_SERVER = bool(os.getenv("IS_SERVER"))
 
 COORDINATOR_IP = os.getenv("COORDINATOR_IP")
 COORDINATOR_PORT = int(os.getenv("COORDINATOR_PORT"))
