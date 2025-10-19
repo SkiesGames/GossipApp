@@ -222,7 +222,7 @@ jobs:
 
       - name: Run formatting and linting
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.REGISTRY }}/${{ github.repository }}-format-lint:latest
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ghcr.io/skiesgames/gossipapp-format-lint:latest
 
       - name: Commit formatting changes
         run: |
@@ -285,7 +285,7 @@ jobs:
 
       - name: Run tests
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.REGISTRY }}/${{ github.repository }}-test:latest
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ghcr.io/skiesgames/gossipapp-test:latest
 
   build-app:
     needs: [detect-changes, security-scan, build-tools, format-lint, test]
