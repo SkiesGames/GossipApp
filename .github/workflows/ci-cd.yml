@@ -46,9 +46,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       app_is_changed: ${{ steps.detect.outputs.app_is_changed }}
-      ansible_is_changed: ${{ steps.detect.outputs.ansible_is_changed }}
       docker_is_changed: ${{ steps.detect.outputs.docker_is_changed }}
       security_scan_needed: ${{ steps.detect.outputs.security_scan_needed }}
+      dockerfiles_matrix: ${{ steps.detect.outputs.dockerfiles_matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
