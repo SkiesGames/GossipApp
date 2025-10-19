@@ -15,6 +15,7 @@ def main():
     """Main entrypoint that determines the application mode"""
 
     print("===  GossipApp   ===")
+    print("Starting as CLIENT..." if config.IS_CLIENT else "Starting as SERVER...")
     print(f"IS_CLIENT: {config.IS_CLIENT}")
     print(f"IS_SERVER: {config.IS_SERVER}")
     print(f"Coordinator address: {config.COORDINATOR_IP}:{config.COORDINATOR_PORT}")
