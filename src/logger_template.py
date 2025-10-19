@@ -7,6 +7,7 @@ import re
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
+
 class JsonFormatter(logging.Formatter):
     def __init__(self, include_emojis=True):
         super().__init__(datefmt="%Y-%m-%d %H:%M:%S")
@@ -23,7 +24,9 @@ class JsonFormatter(logging.Formatter):
         for frame_info in stack[3:]:
             module_name = frame_info.frame.f_globals.get("__name__", "unknown")
             # Skip frames from logging or global_logger
-            if not module_name.startswith(("logging", "src.LoggingInteractions.global_logger")):
+            if not module_name.startswith(
+                ("logging", "src.LoggingInteractions.global_logger")
+            ):
                 caller_module = module_name
                 break
 
@@ -35,9 +38,9 @@ class JsonFormatter(logging.Formatter):
         # Handle emoji filtering
         if not self.include_emojis:
             # Remove emojis using regex pattern for Unicode emoji characters
-            message = re.sub(r'[^\w\s\-_.,!?;:()[\]{}"\']', '', message)
+            message = re.sub(r'[^\w\s\-_.,!?;:()[\]{}"\']', "", message)
             # Clean up extra spaces
-            message = re.sub(r'\s+', ' ', message).strip()
+            message = re.sub(r"\s+", " ", message).strip()
 
         log_data = {
             "timestamp": self.formatTime(record),
@@ -47,25 +50,27 @@ class JsonFormatter(logging.Formatter):
             "module": record.module,
             "funcName": record.funcName,
             "lineno": record.lineno,
-            "caller": caller_module
+            "caller": caller_module,
         }
-        
+
         # Mask sensitive data
         if "secrets" in message.lower():
             log_data["message"] = "[REDACTED]"
-            
+
         return json.dumps(log_data, ensure_ascii=False)
+
 
 class EmojiFilter(logging.Filter):
     """Filter to remove emojis from log messages"""
-    
+
     def filter(self, record):
-        if hasattr(record, 'msg') and isinstance(record.msg, str):
+        if hasattr(record, "msg") and isinstance(record.msg, str):
             # Remove emojis using regex pattern for Unicode emoji characters
-            record.msg = re.sub(r'[^\w\s\-_.,!?;:()[\]{}"\']', '', record.msg)
+            record.msg = re.sub(r'[^\w\s\-_.,!?;:()[\]{}"\']', "", record.msg)
             # Clean up extra spaces
-            record.msg = re.sub(r'\s+', ' ', record.msg).strip()
+            record.msg = re.sub(r"\s+", " ", record.msg).strip()
         return True
+
 
 class CustomRotatingFileHandler(RotatingFileHandler):
     def __init__(self, *args, **kwargs):
@@ -95,10 +100,13 @@ class CustomRotatingFileHandler(RotatingFileHandler):
         except Exception:
             self.handleError(record)
 
-def initialize_logger(logger_name: str, debug_mode: bool, include_emojis: bool = True) -> logging.Logger:
+
+def initialize_logger(
+    logger_name: str, debug_mode: bool, include_emojis: bool = True
+) -> logging.Logger:
     """
     Initializes a logger with a JSON-handler for a file and a minimalistic console output.
-    
+
     Parameters
     ----------
     logger_name : str
@@ -107,7 +115,7 @@ def initialize_logger(logger_name: str, debug_mode: bool, include_emojis: bool =
         If True, sets logging level to DEBUG; otherwise, INFO.
     include_emojis : bool
         If True, emojis are included in log messages. If False, emojis are filtered out.
-        
+
     Returns
     -------
     logging.Logger
@@ -125,14 +133,14 @@ def initialize_logger(logger_name: str, debug_mode: bool, include_emojis: bool =
     # Console handler (level DEBUG or INFO based on debug_mode, minimalistic)
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG if debug_mode else logging.INFO)
-    
+
     # Console formatter with emoji support
     if include_emojis:
-        console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+        console_formatter = logging.Formatter("%(levelname)s: %(message)s")
     else:
-        console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+        console_formatter = logging.Formatter("%(levelname)s: %(message)s")
         ch.addFilter(EmojiFilter())
-    
+
     ch.setFormatter(console_formatter)
     logger.addHandler(ch)
 
@@ -142,7 +150,7 @@ def initialize_logger(logger_name: str, debug_mode: bool, include_emojis: bool =
         filename=json_log_filename,
         maxBytes=10 * 1024 * 1024,  # 10 MB
         backupCount=5,
-        encoding="utf-8"
+        encoding="utf-8",
     )
     json_fh.setLevel(logging.DEBUG)
     json_formatter = JsonFormatter(include_emojis=include_emojis)
@@ -151,18 +159,19 @@ def initialize_logger(logger_name: str, debug_mode: bool, include_emojis: bool =
 
     return logger
 
+
 def create_emoji_free_logger(logger_name: str, debug_mode: bool) -> logging.Logger:
     """
     Creates a logger specifically for environments where emojis should be filtered out
     (e.g., production systems, log aggregation pipelines).
-    
+
     Parameters
     ----------
     logger_name : str
         Logger name, usually the module name.
     debug_mode : bool
         If True, sets logging level to DEBUG; otherwise, INFO.
-        
+
     Returns
     -------
     logging.Logger
