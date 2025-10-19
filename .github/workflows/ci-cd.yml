@@ -55,18 +55,41 @@ jobs:
       - name: Detect changes
         id: detect
         run: |
+          # Configuration
+          DOCKERFILE_PATTERNS=("Dockerfile" "Dockerfile.prod.test" "Dockerfile.prod.format-lint" "Dockerfile.prod.security-scan")
           APP_PATTERN="src/"
           ANSIBLE_PATTERN="ansible/"
           DOCKER_PATTERN="Dockerfile|compose.yml|requirements.txt"
           
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            CHANGED_FILES="src/**/* ansible/**/* Dockerfile compose.yml requirements.txt"
+            CHANGED_FILES="src/**/* ansible/**/* Dockerfile* compose.yml requirements.txt"
           else
             CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "")
           fi
           
           echo Changed files: 
           echo "$CHANGED_FILES"
+          
+          # Detect Dockerfile changes
+          DOCKERFILES_CHANGED=""
+          for pattern in "${DOCKERFILE_PATTERNS[@]}"; do
+            if echo "$CHANGED_FILES" | grep -q "^${pattern}$"; then
+              DOCKERFILES_CHANGED="${DOCKERFILES_CHANGED:+$DOCKERFILES_CHANGED }$pattern"
+            fi
+          done
+          
+          # Build matrix for Docker builds
+          DOCKERFILES_MATRIX="[]"
+          if [ -n "$DOCKERFILES_CHANGED" ]; then
+            DOCKERFILES_TRIMMED=$(echo "$DOCKERFILES_CHANGED" | xargs)
+            if [ -n "$DOCKERFILES_TRIMMED" ]; then
+              DOCKERFILES_MATRIX=$(jq -n -c --arg files "$DOCKERFILES_TRIMMED" '$files | split(" ") | map(select(length > 0))')
+              if ! echo "$DOCKERFILES_MATRIX" | jq . >/dev/null 2>&1; then
+                echo "Error: Invalid JSON generated for matrix"
+                exit 1
+              fi
+            fi
+          fi
           
           APP_IS_CHANGED="false"
           if echo "$CHANGED_FILES" | grep -q "$APP_PATTERN"; then
@@ -91,6 +114,20 @@ jobs:
             SECURITY_SCAN_NEEDED="true"
           fi
           echo "security_scan_needed=$SECURITY_SCAN_NEEDED" >> $GITHUB_OUTPUT
+          
+          # Set outputs
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          printf "dockerfiles_matrix=%s\n" "$DOCKERFILES_MATRIX" >> $GITHUB_OUTPUT
+          
+          # Summary
+          echo "Changed files: $CHANGED_FILES"
+          echo "Dockerfiles matrix: $DOCKERFILES_MATRIX"
+          echo "App changed: $APP_IS_CHANGED"
+          echo "Ansible changed: $ANSIBLE_IS_CHANGED"
+          echo "Docker changed: $DOCKER_IS_CHANGED"
+          echo "Security scan: $SECURITY_SCAN_NEEDED"
 
   security-scan:
     needs: [detect-changes]
@@ -114,12 +151,66 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
-  format-lint:
+  build:
     needs: [detect-changes, security-scan]
     if: |
       always() &&
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
-      (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') && 
+      (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
+      ((needs.detect-changes.result == 'success' && needs.detect-changes.outputs.dockerfiles_matrix != '[]') || 
+      needs.detect-changes.result == 'skipped' ||
+      github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dockerfile: ${{ fromJson(needs.detect-changes.outputs.dockerfiles_matrix || '["Dockerfile", "Dockerfile.prod.test", "Dockerfile.prod.format-lint"]') }}
+      fail-fast: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.dockerfile == 'Dockerfile' && 'main' || matrix.dockerfile == 'Dockerfile.prod.test' && 'test' || matrix.dockerfile == 'Dockerfile.prod.format-lint' && 'format-lint' || 'security-scan' }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push ${{ matrix.dockerfile }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  format-lint:
+    needs: [detect-changes, security-scan, build]
+    if: |
+      always() &&
+      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
+      (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
       (needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true')
     runs-on: ubuntu-latest
     steps:
@@ -147,11 +238,12 @@ jobs:
           fi
 
   test:
-    needs: [detect-changes, security-scan, format-lint]
+    needs: [detect-changes, security-scan, build, format-lint]
     if: |
       always() &&
       (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
       (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
       (needs.format-lint.result == 'success' || needs.format-lint.result == 'skipped') &&
       (needs.detect-changes.outputs.app_is_changed == 'true' || needs.detect-changes.outputs.docker_is_changed == 'true')
     runs-on: ubuntu-latest
@@ -197,58 +289,7 @@ jobs:
 
       - name: Run tests
         run: |
-          docker build -f Dockerfile.prod.test -t gossipapp-test .
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace gossipapp-test
-
-  build:
-    needs: [detect-changes, security-scan, format-lint, test]
-    if: |
-      always() &&
-      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
-      (needs.security-scan.result == 'success' || needs.security-scan.result == 'skipped') &&
-      (needs.format-lint.result == 'success' || needs.format-lint.result == 'skipped') &&
-      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
-      (needs.detect-changes.outputs.app_is_changed == 'true' || 
-       needs.detect-changes.outputs.docker_is_changed == 'true' ||
-       github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max   
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-test:latest
 
   check-dependencies:
     needs: [detect-changes, security-scan, format-lint, test, build]
