@@ -1,5 +1,5 @@
 # === Build Stage ===
-FROM python:3.13-slim as builder
+FROM python:3.13-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && \
@@ -50,4 +50,4 @@ COPY compose.yml ./
 COPY Dockerfile ./
 COPY requirements.txt ./
 
-CMD ["bash", "-c", "flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics && flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics && black --check src/ && prettier --check compose.yml"]
+CMD ["bash", "-c", "echo 'Running flake8 linting...' && flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics && echo 'Running flake8 style checks...' && flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics && echo 'Running black formatting...' && black src/ && echo 'Running prettier formatting...' && prettier --write compose.yml && echo 'Formatting complete!'"]

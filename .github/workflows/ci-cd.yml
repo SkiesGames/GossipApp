@@ -42,7 +42,6 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      changed_files: ${{ steps.detect.outputs.changed_files }}
       app_is_changed: ${{ steps.detect.outputs.app_is_changed }}
       ansible_is_changed: ${{ steps.detect.outputs.ansible_is_changed }}
       docker_is_changed: ${{ steps.detect.outputs.docker_is_changed }}
@@ -66,11 +65,8 @@ jobs:
             CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "")
           fi
           
-          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          echo Changed files: $CHANGED_FILES
+          echo Changed files: 
+          echo "$CHANGED_FILES"
           
           APP_IS_CHANGED="false"
           if echo "$CHANGED_FILES" | grep -q "$APP_PATTERN"; then
