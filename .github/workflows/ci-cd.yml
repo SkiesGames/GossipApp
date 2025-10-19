@@ -70,6 +70,9 @@ jobs:
           echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
           APP_IS_CHANGED="false"
           if echo "$CHANGED_FILES" | grep -q "$APP_PATTERN"; then
             APP_IS_CHANGED="true"
