@@ -1,11 +1,11 @@
 services:
   gossip-app:
     image: ghcr.io/skiesgames/gossipapp:latest
+    pull_policy: always
     restart: unless-stopped
     network_mode: host
     environment:
-      IS_SERVER: ${IS_SERVER}
-      IS_CLIENT: ${IS_CLIENT}
+      MODE: ${MODE}
       COORDINATOR_IP: ${COORDINATOR_IP}
       COORDINATOR_PORT: ${COORDINATOR_PORT}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
@@ -16,13 +16,13 @@ services:
 #
 # GossipApp Single Container Setup:
 # - Each VPS runs one container with different environment variables
-# - VPS 1: IS_SERVER=true, IS_CLIENT=false (Coordinator)
-# - VPS 2: IS_SERVER=false, IS_CLIENT=true (Client 1)
-# - VPS 3: IS_SERVER=false, IS_CLIENT=true (Client 2)
+# - VPS 1: MODE=server (Coordinator)
+# - VPS 2: MODE=client (Client 1)
+# - VPS 3: MODE=client (Client 2)
 # - Uses host networking mode for simplicity
 # - Healthcheck only works for server (coordinator)
 # - Logs are persisted to host filesystem
 # - Environment variables control the application behavior:
-#   - IS_SERVER/IS_CLIENT: Determines application mode
+#   - MODE: Determines application mode (server/client)
 #   - COORDINATOR_IP/PORT: Network configuration (only needed for clients)
 #   - TELEGRAM_BOT_TOKEN/CHAT_ID: Telegram integration (only needed for server)
