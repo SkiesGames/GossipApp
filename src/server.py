@@ -104,16 +104,18 @@ class Coordinator:
         """Initiate server shutdown after successful message combination"""
         if self.shutdown_requested:
             return
-            
+
         self.shutdown_requested = True
         print("Initiating server shutdown after successful message combination...")
-        
+
         # Send shutdown notification to Telegram
         if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
-            shutdown_message = "Server shutting down after successful message combination"
+            shutdown_message = (
+                "Server shutting down after successful message combination"
+            )
             send_notification(shutdown_message)
             print("Shutdown notification sent to Telegram")
-        
+
         # Close the server
         if self.server:
             print("Closing server...")
@@ -127,7 +129,7 @@ async def main():
     server = await asyncio.start_server(
         coordinator.handle_client, "0.0.0.0", config.COORDINATOR_PORT
     )
-    
+
     # Store server reference in coordinator for shutdown
     coordinator.server = server
 
